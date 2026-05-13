@@ -6,7 +6,7 @@ const integrations = [
     id: "portal",
     href: "/portal",
     label: "Portal",
-    source: "Sentry",
+    source: "Sentry, Google Analytics",
     description:
       "Error rates, crash-free sessions, and page-level P50 performance for the past 7 days.",
     status: "live" as const,

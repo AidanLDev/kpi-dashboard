@@ -1,17 +1,38 @@
 import Link from "next/link";
 import { getSentryMetrics, SentryMetrics } from "@/lib/sentry";
+import { getGAMetrics, GAMetrics } from "@/lib/ga";
 import { StatCard } from "@/components/stat-card";
 import { TransactionTable } from "@/components/transaction-table";
 import { ChevronLeft, SentryIcon } from "@/assets/icons/icons";
 
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
+}
+
 export default async function PortalPage() {
   let metrics: SentryMetrics | null = null;
   let error: string | null = null;
+  let gaMetrics: GAMetrics | null = null;
 
-  try {
-    metrics = await getSentryMetrics();
-  } catch (e) {
-    error = e instanceof Error ? e.message : "An unknown error occurred";
+  const [sentryResult, gaResult] = await Promise.allSettled([
+    getSentryMetrics(),
+    getGAMetrics(),
+  ]);
+
+  if (sentryResult.status === "fulfilled") {
+    metrics = sentryResult.value;
+  } else {
+    error =
+      sentryResult.reason instanceof Error
+        ? sentryResult.reason.message
+        : "An unknown error occurred";
+  }
+
+  if (gaResult.status === "fulfilled") {
+    gaMetrics = gaResult.value;
   }
 
   if (error) {
@@ -59,7 +80,7 @@ export default async function PortalPage() {
             </h1>
           </div>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Last 7 days · Sentry
+            Last 7 days · Sentry · Google Analytics
           </p>
         </header>
 
@@ -80,6 +101,16 @@ export default async function PortalPage() {
                   ? "text-yellow-600 dark:text-yellow-400"
                   : "text-red-600 dark:text-red-400"
             }
+          />
+          <StatCard
+            label="Total Views"
+            value={(gaMetrics?.totalViews ?? 0).toLocaleString()}
+            description="Page views · last 7 days"
+          />
+          <StatCard
+            label="Avg. Engagement Time"
+            value={formatDuration(gaMetrics?.avgEngagementSeconds ?? 0)}
+            description="Per active user · last 7 days"
           />
         </div>
 
