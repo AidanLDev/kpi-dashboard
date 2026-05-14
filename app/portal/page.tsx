@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getSentryMetrics, SentryMetrics } from "@/lib/sentry";
 import { getGAMetrics, GAMetrics } from "@/lib/ga";
+import { getTimestreamData, UserActivityRow } from "@/lib/aws";
 import { StatCard } from "@/components/stat-card";
 import { TransactionTable } from "@/components/transaction-table";
 import { ChevronLeft, SentryIcon } from "@/assets/icons/icons";
@@ -16,11 +17,19 @@ export default async function PortalPage() {
   let metrics: SentryMetrics | null = null;
   let error: string | null = null;
   let gaMetrics: GAMetrics | null = null;
+  let timestreamMetrics: UserActivityRow[] | null = null;
 
-  const [sentryResult, gaResult] = await Promise.allSettled([
+  const [sentryResult, gaResult, timestreamResult] = await Promise.allSettled([
     getSentryMetrics(),
     getGAMetrics(),
+    getTimestreamData(),
   ]);
+
+  if (timestreamResult.status === "fulfilled") {
+    timestreamMetrics = timestreamResult.value;
+  } else {
+    console.error("[Timestream error]", timestreamResult.reason);
+  }
 
   if (sentryResult.status === "fulfilled") {
     metrics = sentryResult.value;
@@ -111,6 +120,15 @@ export default async function PortalPage() {
             label="Avg. Engagement Time"
             value={formatDuration(gaMetrics?.avgEngagementSeconds ?? 0)}
             description="Per active user · last 7 days"
+          />
+          <StatCard
+            label="Non PV users"
+            value={String(
+              timestreamResult.status === "fulfilled"
+                ? timestreamMetrics?.length
+                : 0,
+            )}
+            description="Number of unique non PV users that have logged in · last 7 days"
           />
         </div>
 
