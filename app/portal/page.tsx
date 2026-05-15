@@ -13,6 +13,21 @@ function formatDuration(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
+function lookupAvgTime(
+  transaction: string,
+  pageAvgTimes: Record<string, number>
+): number | undefined {
+  if (transaction in pageAvgTimes) return pageAvgTimes[transaction];
+  if (!transaction.includes("[")) return undefined;
+  // Dynamic routes: aggregate all GA paths that match the template
+  const re = new RegExp(
+    "^" + transaction.replace(/\[[^\]]+\]/g, "[^/]+") + "$"
+  );
+  const matches = Object.entries(pageAvgTimes).filter(([p]) => re.test(p));
+  if (matches.length === 0) return undefined;
+  return matches.reduce((sum, [, v]) => sum + v, 0) / matches.length;
+}
+
 export default async function PortalPage() {
   let metrics: SentryMetrics | null = null;
   let error: string | null = null;
@@ -132,7 +147,14 @@ export default async function PortalPage() {
           />
         </div>
 
-        <TransactionTable transactions={transactions} />
+        <TransactionTable
+          transactions={transactions.map((t) => ({
+            ...t,
+            avgTimeSeconds: gaMetrics
+              ? lookupAvgTime(t.transaction, gaMetrics.pageAvgTimes)
+              : undefined,
+          }))}
+        />
       </div>
     </div>
   );

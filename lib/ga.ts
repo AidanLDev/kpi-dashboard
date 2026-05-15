@@ -52,6 +52,7 @@ async function getAccessToken(): Promise<string> {
 export interface GAMetrics {
   totalViews: number;
   avgEngagementSeconds: number;
+  pageAvgTimes: Record<string, number>; // pagePath → avg engagement seconds per view
 }
 
 export async function getGAMetrics(): Promise<GAMetrics> {
@@ -62,44 +63,75 @@ export async function getGAMetrics(): Promise<GAMetrics> {
 
   const accessToken = await getAccessToken();
 
-  const res = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
-        metrics: [
-          { name: "screenPageViews" },
-          { name: "userEngagementDuration" },
-          { name: "activeUsers" },
-        ],
-      }),
-    }
-  );
+  const runReport = (body: object) =>
+    fetch(
+      `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`GA Data API ${res.status}: ${body.slice(0, 300)}`);
+  const [summaryRes, pageRes] = await Promise.all([
+    runReport({
+      dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+      metrics: [
+        { name: "screenPageViews" },
+        { name: "userEngagementDuration" },
+        { name: "activeUsers" },
+      ],
+    }),
+    runReport({
+      dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+      dimensions: [{ name: "pagePath" }],
+      metrics: [
+        { name: "userEngagementDuration" },
+        { name: "screenPageViews" },
+      ],
+    }),
+  ]);
+
+  if (!summaryRes.ok) {
+    const body = await summaryRes.text().catch(() => "");
+    throw new Error(`GA Data API ${summaryRes.status}: ${body.slice(0, 300)}`);
+  }
+  if (!pageRes.ok) {
+    const body = await pageRes.text().catch(() => "");
+    throw new Error(`GA Data API (pages) ${pageRes.status}: ${body.slice(0, 300)}`);
   }
 
-  const data = (await res.json()) as GAReportResponse;
-  const values = data.rows?.[0]?.metricValues;
+  const summaryData = (await summaryRes.json()) as GASummaryResponse;
+  const pageData = (await pageRes.json()) as GAPageResponse;
 
+  const values = summaryData.rows?.[0]?.metricValues;
   const totalViews = Number(values?.[0]?.value ?? "0");
   const userEngagementDuration = Number(values?.[1]?.value ?? "0");
   const activeUsers = Number(values?.[2]?.value ?? "0");
   const avgEngagementSeconds =
     activeUsers > 0 ? userEngagementDuration / activeUsers : 0;
 
-  return { totalViews, avgEngagementSeconds };
+  const pageAvgTimes: Record<string, number> = {};
+  for (const row of pageData.rows ?? []) {
+    const path = row.dimensionValues[0].value;
+    const duration = Number(row.metricValues[0].value);
+    const views = Number(row.metricValues[1].value);
+    if (views > 0) pageAvgTimes[path] = duration / views;
+  }
+
+  return { totalViews, avgEngagementSeconds, pageAvgTimes };
 }
 
-interface GAReportResponse {
+interface GASummaryResponse {
+  rows?: Array<{ metricValues: Array<{ value: string }> }>;
+}
+
+interface GAPageResponse {
   rows?: Array<{
+    dimensionValues: Array<{ value: string }>;
     metricValues: Array<{ value: string }>;
   }>;
 }
