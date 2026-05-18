@@ -145,6 +145,23 @@ export default async function PortalPage() {
             )}
             description="Number of unique non PV users that have logged in · last 7 days"
           />
+          <StatCard
+            label="Bounce Rate"
+            value={`${(gaMetrics?.bounceRate ?? 0).toFixed(1)}%`}
+            description="Sessions with no engagement · last 7 days"
+            valueColor={
+              (gaMetrics?.bounceRate ?? 0) <= 40
+                ? "text-green-600 dark:text-green-400"
+                : (gaMetrics?.bounceRate ?? 0) <= 60
+                  ? "text-yellow-600 dark:text-yellow-400"
+                  : "text-red-600 dark:text-red-400"
+            }
+          />
+          <StatCard
+            label="Mobile vs Desktop"
+            value={`${(gaMetrics?.deviceBreakdown.mobile ?? 0).toFixed(0)}% / ${(gaMetrics?.deviceBreakdown.desktop ?? 0).toFixed(0)}%`}
+            description="Mobile · Desktop share · last 7 days"
+          />
         </div>
 
         <TransactionTable
