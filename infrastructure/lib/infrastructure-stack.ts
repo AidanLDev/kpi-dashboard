@@ -1,6 +1,8 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as timestream from "aws-cdk-lib/aws-timestream";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import path;
 
 export class InfrastructureStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -24,11 +26,25 @@ export class InfrastructureStack extends cdk.Stack {
         memoryStoreRetentionPeriodInHours: (24 * 31).toString(),
         magneticStoreRetentionPeriodInDays: (365 * 5).toString(),
       },
+      magneticStoreWriteProperties: {
+        enableMagneticStoreWrites: true,
+      },
     });
 
     // Retain table if stack is deleted
     timestreamTable.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
 
     timestreamTable.node.addDependency(timestreamDb);
+
+    // Lambda for running the
+    const getLatestPortalMetricsFunction = new lambda.Function(
+      this,
+      "GetLatestPortalMetrics",
+      {
+        runtime: lambda.Runtime.NODEJS_LATEST,
+        handler: "index.handler",
+        code: lambda.Code.fromAsset("lambda/getLatestPortalMetrics"),
+      },
+    );
   }
 }
