@@ -67,8 +67,12 @@ const columns: TableColumn<Transaction>[] = [
 
 export function TransactionTable({
   transactions,
+  from,
+  to,
 }: {
   transactions: Transaction[];
+  from: string;
+  to: string;
 }) {
   const sorted = [...transactions].sort((a, b) =>
     a.transaction.localeCompare(b.transaction),
@@ -77,7 +81,7 @@ export function TransactionTable({
   return (
     <Table
       title="Page Speed & Engagement"
-      subtitle="Load time (P50) · Avg. time on page · Last 7 days"
+      subtitle={`Load time (P50) · Avg. time on page · ${from} – ${to}`}
       columns={columns}
       rows={sorted}
       getRowKey={(row) => row.transaction}

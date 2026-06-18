@@ -51,7 +51,10 @@ export interface SentryMetrics {
   transactions: Array<{ transaction: string; p50ms: number; count: number }>;
 }
 
-export async function getSentryMetrics(): Promise<SentryMetrics> {
+export async function getSentryMetrics(
+  startDate: string,
+  endDate: string,
+): Promise<SentryMetrics> {
   const org = process.env.SENTRY_ORG;
   const projectSlug = process.env.SENTRY_PROJECT;
 
@@ -61,11 +64,16 @@ export async function getSentryMetrics(): Promise<SentryMetrics> {
 
   const projectId = await getProjectNumericId(org, projectSlug);
 
+  // Sentry expects ISO 8601 datetimes for start/end
+  const start = `${startDate}T00:00:00`;
+  const end = `${endDate}T23:59:59`;
+
   const [errorsResult, sessionsResult, eventsResult] = await Promise.allSettled([
     sentryFetch<StatsV2Response>(`/organizations/${org}/stats_v2/`, [
       ["category", "error"],
       ["interval", "1d"],
-      ["statsPeriod", "7d"],
+      ["start", start],
+      ["end", end],
       ["outcome", "accepted"],
       ["field", "sum(quantity)"],
       ["project", projectId],
@@ -74,14 +82,16 @@ export async function getSentryMetrics(): Promise<SentryMetrics> {
       ["project", projectId],
       ["field", "sum(session)"],
       ["groupBy", "session.status"],
-      ["statsPeriod", "7d"],
+      ["start", start],
+      ["end", end],
     ]),
     sentryFetch<EventsResponse>(`/organizations/${org}/events/`, [
       ["field", "transaction"],
       ["field", "p50(transaction.duration)"],
       ["field", "count()"],
       ["query", `event.type:transaction transaction.op:navigation project:${projectSlug}`],
-      ["statsPeriod", "7d"],
+      ["start", start],
+      ["end", end],
       ["sort", "-count()"],
       ["per_page", "20"],
     ]),

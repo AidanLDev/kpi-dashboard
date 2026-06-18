@@ -57,7 +57,10 @@ export interface GAMetrics {
   deviceBreakdown: { desktop: number; mobile: number; tablet: number }; // percentages
 }
 
-export async function getGAMetrics(): Promise<GAMetrics> {
+export async function getGAMetrics(
+  startDate: string,
+  endDate: string,
+): Promise<GAMetrics> {
   const propertyId = process.env.GA_PROPERTY_ID;
   if (!propertyId) {
     throw new Error("GA_PROPERTY_ID env var must be set");
@@ -78,9 +81,11 @@ export async function getGAMetrics(): Promise<GAMetrics> {
       }
     );
 
+  const dateRanges = [{ startDate, endDate }];
+
   const [summaryRes, pageRes, deviceRes] = await Promise.all([
     runReport({
-      dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+      dateRanges,
       metrics: [
         { name: "screenPageViews" },
         { name: "userEngagementDuration" },
@@ -89,7 +94,7 @@ export async function getGAMetrics(): Promise<GAMetrics> {
       ],
     }),
     runReport({
-      dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+      dateRanges,
       dimensions: [{ name: "pagePath" }],
       metrics: [
         { name: "userEngagementDuration" },
@@ -97,7 +102,7 @@ export async function getGAMetrics(): Promise<GAMetrics> {
       ],
     }),
     runReport({
-      dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+      dateRanges,
       dimensions: [{ name: "deviceCategory" }],
       metrics: [{ name: "sessions" }],
     }),

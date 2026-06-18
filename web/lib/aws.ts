@@ -22,13 +22,16 @@ function parseRows(columns: ColumnInfo[], rows: Row[]): UserActivityRow[] {
   );
 }
 
-export async function getTimestreamData(): Promise<UserActivityRow[]> {
+export async function getTimestreamData(
+  startDate: string,
+  endDate: string,
+): Promise<UserActivityRow[]> {
   const result = await client.send(
     new QueryCommand({
       QueryString: `
         SELECT userId
         FROM "LineVuPortalUserActivityDatabase-prod"."UserActivity-prod"
-        WHERE time between ago(7d) and now()
+        WHERE time between '${startDate} 00:00:00' and '${endDate} 23:59:59'
         AND userId NOT IN (
           '21325aa3-0f70-44a6-a1bf-64a2a985103e',
           'b77d46dc-a7e7-4bb8-988b-ef0400886bbe',

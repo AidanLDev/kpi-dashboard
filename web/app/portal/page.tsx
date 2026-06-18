@@ -4,6 +4,7 @@ import { getGAMetrics, GAMetrics } from "@/lib/ga";
 import { getTimestreamData, UserActivityRow } from "@/lib/aws";
 import { StatCard } from "@/components/stat-card";
 import { TransactionTable } from "@/components/transaction-table";
+import { DateRangePicker } from "@/components/date-range-picker";
 import { ChevronLeft, SentryIcon } from "@/assets/icons/icons";
 
 function formatDuration(seconds: number): string {
@@ -28,16 +29,33 @@ function lookupAvgTime(
   return matches.reduce((sum, [, v]) => sum + v, 0) / matches.length;
 }
 
-export default async function PortalPage() {
+function toISODate(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+export default async function PortalPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const params = await searchParams;
+
+  const today = new Date();
+  const defaultTo = toISODate(today);
+  const defaultFrom = toISODate(new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000));
+
+  const from = typeof params.from === "string" ? params.from : defaultFrom;
+  const to = typeof params.to === "string" ? params.to : defaultTo;
+
   let metrics: SentryMetrics | null = null;
   let error: string | null = null;
   let gaMetrics: GAMetrics | null = null;
   let timestreamMetrics: UserActivityRow[] | null = null;
 
   const [sentryResult, gaResult, timestreamResult] = await Promise.allSettled([
-    getSentryMetrics(),
-    getGAMetrics(),
-    getTimestreamData(),
+    getSentryMetrics(from, to),
+    getGAMetrics(from, to),
+    getTimestreamData(from, to),
   ]);
 
   if (timestreamResult.status === "fulfilled") {
@@ -95,17 +113,22 @@ export default async function PortalPage() {
         </Link>
 
         <header className="mb-8">
-          <div className="flex items-center gap-2.5 mb-1">
-            <div className="w-6 h-6 rounded-md bg-violet-100 dark:bg-violet-950 flex items-center justify-center">
-              <SentryIcon className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2.5 mb-1">
+                <div className="w-6 h-6 rounded-md bg-violet-100 dark:bg-violet-950 flex items-center justify-center">
+                  <SentryIcon className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
+                </div>
+                <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
+                  Portal
+                </h1>
+              </div>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                {from} – {to} · Sentry · Google Analytics · Timestream
+              </p>
             </div>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
-              Portal
-            </h1>
+            <DateRangePicker from={from} to={to} />
           </div>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Last 7 days · Sentry · Google Analytics
-          </p>
         </header>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-8">
@@ -129,12 +152,12 @@ export default async function PortalPage() {
           <StatCard
             label="Total Views"
             value={(gaMetrics?.totalViews ?? 0).toLocaleString()}
-            description="Page views · last 7 days"
+            description="Page views"
           />
           <StatCard
             label="Avg. Engagement Time"
             value={formatDuration(gaMetrics?.avgEngagementSeconds ?? 0)}
-            description="Per active user · last 7 days"
+            description="Per active user"
           />
           <StatCard
             label="Non PV users"
@@ -143,12 +166,12 @@ export default async function PortalPage() {
                 ? timestreamMetrics?.length
                 : 0,
             )}
-            description="Number of unique non PV users that have logged in · last 7 days"
+            description="Unique non PV users that have logged in"
           />
           <StatCard
             label="Bounce Rate"
             value={`${(gaMetrics?.bounceRate ?? 0).toFixed(1)}%`}
-            description="Sessions with no engagement · last 7 days"
+            description="Sessions with no engagement"
             valueColor={
               (gaMetrics?.bounceRate ?? 0) <= 40
                 ? "text-green-600 dark:text-green-400"
@@ -160,11 +183,13 @@ export default async function PortalPage() {
           <StatCard
             label="Mobile vs Desktop"
             value={`${(gaMetrics?.deviceBreakdown.mobile ?? 0).toFixed(0)}% / ${(gaMetrics?.deviceBreakdown.desktop ?? 0).toFixed(0)}%`}
-            description="Mobile · Desktop share · last 7 days"
+            description="Mobile · Desktop share"
           />
         </div>
 
         <TransactionTable
+          from={from}
+          to={to}
           transactions={transactions.map((t) => ({
             ...t,
             avgTimeSeconds: gaMetrics
