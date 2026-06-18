@@ -6,3 +6,8 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# Lambda bundled dependencies (re-installed via pip before deploy)
+lambda/ingestDailyMetrics/*
+!lambda/ingestDailyMetrics/index.py
+!lambda/ingestDailyMetrics/requirements.txt
