@@ -1,3 +1,4 @@
+import boto3
 import pandas as pd
 import awswrangler as wr
 import re
@@ -247,27 +248,30 @@ print(df_long.sort_values(["metric_name", "time"]).to_string(index=False))
 
 # --- Step 6: Ingest into Timestream ---
 df_ingest = df_long.copy()
-df_ingest["measure_value"] = df_ingest["raw_value"].apply(to_measure_value)
+df_ingest["value"] = df_ingest["raw_value"].apply(to_measure_value)
 
-non_numeric = df_ingest[df_ingest["measure_value"].isna()]["metric_name"].value_counts()
+non_numeric = df_ingest[df_ingest["value"].isna()]["metric_name"].value_counts()
 if not non_numeric.empty:
     print(f"\nSkipping {non_numeric.sum()} non-numeric records:")
     for metric, count in non_numeric.items():
         print(f"  {metric}: {count}")
 
-df_ingest = df_ingest.dropna(subset=["measure_value"])[
-    ["time", "metric_name", "measure_value"]
+df_ingest = df_ingest.dropna(subset=["value"])[
+    ["time", "metric_name", "value"]
 ]
 df_ingest["time"] = df_ingest["time"].dt.tz_localize("UTC")
 
 print(f"\nWriting {len(df_ingest)} records to Timestream...")
+boto3_session = boto3.Session(region_name="eu-west-1")
+wr.config.boto3_session = boto3_session
 rejected = wr.timestream.write(
     df=df_ingest,
     database="KpiDashboardDatabase",
     table="KpiMetrics",
     time_col="time",
-    measure_col="measure_value",
+    measure_col="value",
     dimensions_cols=["metric_name"],
+    boto3_session=boto3_session,
 )
 
 if rejected:
