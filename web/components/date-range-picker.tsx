@@ -31,6 +31,7 @@ export function DateRangePicker({ from, to }: DateRangePickerProps) {
   }
 
   function handleChange(key: "from" | "to", value: string) {
+    if (!value) return;
     navigate(key === "from" ? value : from, key === "to" ? value : to);
   }
 

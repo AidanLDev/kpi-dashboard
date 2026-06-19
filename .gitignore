@@ -53,3 +53,6 @@ oauth-client.json
 
 # Builds
 /api/dist
+
+# CI/CD local state
+.last-infra-deploy

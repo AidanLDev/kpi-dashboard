@@ -84,6 +84,8 @@ export default function PortalPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!from || !to) return;
+
     setLoading(true);
     setError(null);
 
