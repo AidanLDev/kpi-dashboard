@@ -53,6 +53,8 @@ export interface GAMetrics {
   totalViews: number;
   avgEngagementSeconds: number;
   pageAvgTimes: Record<string, number>; // pagePath → avg engagement seconds per view
+  pageViews: Record<string, number>; // pagePath → view count
+  sessionsByDate: Record<string, number>; // "YYYYMMDD" → session count
   bounceRate: number; // 0–100
   deviceBreakdown: { desktop: number; mobile: number; tablet: number }; // percentages
 }
@@ -83,7 +85,7 @@ export async function getGAMetrics(
 
   const dateRanges = [{ startDate, endDate }];
 
-  const [summaryRes, pageRes, deviceRes] = await Promise.all([
+  const [summaryRes, pageRes, deviceRes, dateRes] = await Promise.all([
     runReport({
       dateRanges,
       metrics: [
@@ -106,6 +108,11 @@ export async function getGAMetrics(
       dimensions: [{ name: "deviceCategory" }],
       metrics: [{ name: "sessions" }],
     }),
+    runReport({
+      dateRanges,
+      dimensions: [{ name: "date" }],
+      metrics: [{ name: "sessions" }],
+    }),
   ]);
 
   if (!summaryRes.ok) {
@@ -120,10 +127,15 @@ export async function getGAMetrics(
     const body = await deviceRes.text().catch(() => "");
     throw new Error(`GA Data API (devices) ${deviceRes.status}: ${body.slice(0, 300)}`);
   }
+  if (!dateRes.ok) {
+    const body = await dateRes.text().catch(() => "");
+    throw new Error(`GA Data API (dates) ${dateRes.status}: ${body.slice(0, 300)}`);
+  }
 
   const summaryData = (await summaryRes.json()) as GASummaryResponse;
   const pageData = (await pageRes.json()) as GAPageResponse;
   const deviceData = (await deviceRes.json()) as GADeviceResponse;
+  const dateData = (await dateRes.json()) as GADateResponse;
 
   const values = summaryData.rows?.[0]?.metricValues;
   const totalViews = Number(values?.[0]?.value ?? "0");
@@ -134,11 +146,19 @@ export async function getGAMetrics(
     activeUsers > 0 ? userEngagementDuration / activeUsers : 0;
 
   const pageAvgTimes: Record<string, number> = {};
+  const pageViews: Record<string, number> = {};
   for (const row of pageData.rows ?? []) {
     const path = row.dimensionValues[0].value;
     const duration = Number(row.metricValues[0].value);
     const views = Number(row.metricValues[1].value);
     if (views > 0) pageAvgTimes[path] = duration / views;
+    pageViews[path] = views;
+  }
+
+  const sessionsByDate: Record<string, number> = {};
+  for (const row of dateData.rows ?? []) {
+    const date = row.dimensionValues[0].value;
+    sessionsByDate[date] = Number(row.metricValues[0].value);
   }
 
   const deviceSessions: Record<string, number> = {};
@@ -154,7 +174,7 @@ export async function getGAMetrics(
     tablet: pct("tablet"),
   };
 
-  return { totalViews, avgEngagementSeconds, pageAvgTimes, bounceRate, deviceBreakdown };
+  return { totalViews, avgEngagementSeconds, pageAvgTimes, pageViews, sessionsByDate, bounceRate, deviceBreakdown };
 }
 
 interface GASummaryResponse {
@@ -169,6 +189,13 @@ interface GAPageResponse {
 }
 
 interface GADeviceResponse {
+  rows?: Array<{
+    dimensionValues: Array<{ value: string }>;
+    metricValues: Array<{ value: string }>;
+  }>;
+}
+
+interface GADateResponse {
   rows?: Array<{
     dimensionValues: Array<{ value: string }>;
     metricValues: Array<{ value: string }>;

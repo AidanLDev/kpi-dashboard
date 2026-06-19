@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { getSentryMetrics, SentryMetrics } from "@/lib/sentry";
 import { getGAMetrics, GAMetrics } from "@/lib/ga";
-import { getTimestreamData, UserActivityRow } from "@/lib/aws";
+import { getTimestreamData, getTimestreamDataByDate, UserActivityRow } from "@/lib/aws";
 import { StatCard } from "@/components/stat-card";
 import { TransactionTable } from "@/components/transaction-table";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { ChevronLeft, SentryIcon } from "@/assets/icons/icons";
+import { UserSessionsBarChart, BarChartDataPoint } from "@/components/charts/BarChart";
+import { PageViewsTreemap, TreemapDataPoint } from "@/components/charts/TreemapChart";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -33,6 +35,15 @@ function toISODate(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+function gaDateToISO(gaDate: string): string {
+  return `${gaDate.slice(0, 4)}-${gaDate.slice(4, 6)}-${gaDate.slice(6, 8)}`;
+}
+
+function formatDisplayDate(isoDate: string): string {
+  const d = new Date(isoDate + "T00:00:00");
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
 export default async function PortalPage({
   searchParams,
 }: {
@@ -51,17 +62,25 @@ export default async function PortalPage({
   let error: string | null = null;
   let gaMetrics: GAMetrics | null = null;
   let timestreamMetrics: UserActivityRow[] | null = null;
+  let uniqueUsersByDate: Record<string, number> = {};
 
-  const [sentryResult, gaResult, timestreamResult] = await Promise.allSettled([
+  const [sentryResult, gaResult, timestreamResult, timestreamByDateResult] = await Promise.allSettled([
     getSentryMetrics(from, to),
     getGAMetrics(from, to),
     getTimestreamData(from, to),
+    getTimestreamDataByDate(from, to),
   ]);
 
   if (timestreamResult.status === "fulfilled") {
     timestreamMetrics = timestreamResult.value;
   } else {
     console.error("[Timestream error]", timestreamResult.reason);
+  }
+
+  if (timestreamByDateResult.status === "fulfilled") {
+    uniqueUsersByDate = timestreamByDateResult.value;
+  } else {
+    console.error("[Timestream by-date error]", timestreamByDateResult.reason);
   }
 
   if (sentryResult.status === "fulfilled") {
@@ -100,6 +119,33 @@ export default async function PortalPage({
   }
 
   const { totalErrors, crashFreePercent, transactions } = metrics!;
+
+  const sessionsByDateISO: Record<string, number> = {};
+  for (const [k, v] of Object.entries(gaMetrics?.sessionsByDate ?? {})) {
+    sessionsByDateISO[gaDateToISO(k)] = v;
+  }
+  const allDates = Array.from(
+    new Set([...Object.keys(sessionsByDateISO), ...Object.keys(uniqueUsersByDate)])
+  ).sort();
+  const barChartData: BarChartDataPoint[] = allDates.map((d) => ({
+    date: formatDisplayDate(d),
+    sessions: sessionsByDateISO[d] ?? 0,
+    uniqueUsers: uniqueUsersByDate[d] ?? 0,
+  }));
+
+  const groupedPageViews: Record<string, number> = {};
+  for (const [path, views] of Object.entries(gaMetrics?.pageViews ?? {})) {
+    const key = /^\/locations\/[^/]+$/.test(path)
+      ? "/locations/[locationId]"
+      : /^\/on_boarding\/[^/]+$/.test(path)
+      ? "/on_boarding/[userId]"
+      : path;
+    groupedPageViews[key] = (groupedPageViews[key] ?? 0) + views;
+  }
+  const treemapData: TreemapDataPoint[] = Object.entries(groupedPageViews)
+    .map(([name, value]) => ({ name, value }))
+    .filter((d) => d.value > 0)
+    .sort((a, b) => b.value - a.value);
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-8">
@@ -197,6 +243,21 @@ export default async function PortalPage({
               : undefined,
           }))}
         />
+
+        {barChartData.length > 0 && (
+          <div className="mt-4">
+            <UserSessionsBarChart
+              data={barChartData}
+              title="Unique Users (NON PV) and Number of Sessions"
+            />
+          </div>
+        )}
+
+        {treemapData.length > 0 && (
+          <div className="mt-4">
+            <PageViewsTreemap data={treemapData} title="Page Views" />
+          </div>
+        )}
       </div>
     </div>
   );
