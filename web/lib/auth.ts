@@ -69,6 +69,19 @@ export function getSession(): Promise<string> {
   });
 }
 
+export function getGroups(): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const user = userPool.getCurrentUser();
+    if (!user) return reject(new Error("No authenticated user"));
+
+    user.getSession((err: Error | null, session: CognitoUserSession | null) => {
+      if (err || !session?.isValid()) return reject(err ?? new Error("Session invalid"));
+      const payload = session.getAccessToken().decodePayload();
+      resolve((payload["cognito:groups"] as string[]) ?? []);
+    });
+  });
+}
+
 export function signOut(): void {
   userPool.getCurrentUser()?.signOut();
 }

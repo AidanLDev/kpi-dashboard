@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import { getSession, signOut } from "@/lib/auth";
+import { FullPageSpinner } from "@/components/spinner";
 import { StatCard } from "@/components/stat-card";
 import { TransactionTable } from "@/components/transaction-table";
 import { DateRangePicker } from "@/components/date-range-picker";
@@ -68,7 +68,6 @@ function formatDisplayDate(isoDate: string): string {
 }
 
 export default function PortalPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const today = new Date();
@@ -104,18 +103,10 @@ export default function PortalPage() {
   }, [from, to]);
 
   useEffect(() => {
-    getSession()
-      .then(() => fetchData())
-      .catch(() => router.push("/login"));
-  }, [fetchData, router]);
+    fetchData();
+  }, [fetchData]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
-      </div>
-    );
-  }
+  if (loading) return <FullPageSpinner />;
 
   if (error) {
     return (
@@ -172,25 +163,16 @@ export default function PortalPage() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-8">
       <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-50 transition-colors"
-          >
-            <ChevronLeft />
-            Home
-          </Link>
-          <button
-            onClick={() => { signOut(); router.push("/login"); }}
-            className="text-sm text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-50 transition-colors"
-          >
-            Sign out
-          </button>
-        </div>
-
         <header className="mb-8">
           <div className="flex items-start justify-between gap-4">
             <div>
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-50 transition-colors mb-3"
+              >
+                <ChevronLeft />
+                Home
+              </Link>
               <div className="flex items-center gap-2.5 mb-1">
                 <div className="w-6 h-6 rounded-md bg-violet-100 dark:bg-violet-950 flex items-center justify-center">
                   <SentryIcon className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
