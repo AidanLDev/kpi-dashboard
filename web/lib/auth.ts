@@ -12,15 +12,48 @@ const userPool = new CognitoUserPool({
   ClientId: "6r0ttidjbo73f48ol67gqr5iv2",
 });
 
-export function signIn(username: string, password: string): Promise<string> {
+export type SignInResult =
+  | { status: "success"; token: string }
+  | { status: "totp_required"; user: CognitoUser };
+
+export function signIn(
+  username: string,
+  password: string
+): Promise<SignInResult> {
   return new Promise((resolve, reject) => {
     const user = new CognitoUser({ Username: username, Pool: userPool });
-    const authDetails = new AuthenticationDetails({ Username: username, Password: password });
+    const authDetails = new AuthenticationDetails({
+      Username: username,
+      Password: password,
+    });
 
     user.authenticateUser(authDetails, {
-      onSuccess: (session) => resolve(session.getAccessToken().getJwtToken()),
+      onSuccess: (session) =>
+        resolve({
+          status: "success",
+          token: session.getAccessToken().getJwtToken(),
+        }),
       onFailure: (err) => reject(err),
+      totpRequired: () => resolve({ status: "totp_required", user }),
+      mfaRequired: () => resolve({ status: "totp_required", user }),
     });
+  });
+}
+
+export function confirmTotp(
+  user: CognitoUser,
+  code: string
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    user.sendMFACode(
+      code,
+      {
+        onSuccess: (session) =>
+          resolve(session.getAccessToken().getJwtToken()),
+        onFailure: (err) => reject(err),
+      },
+      "SOFTWARE_TOKEN_MFA"
+    );
   });
 }
 
