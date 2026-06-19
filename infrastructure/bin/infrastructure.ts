@@ -6,4 +6,5 @@ import { InfrastructureStack } from '../lib/infrastructure-stack';
 const app = new cdk.App();
 new InfrastructureStack(app, 'InfrastructureStack', {
   env: { account: '705827784156', region: 'eu-west-1' },
+  crossRegionReferences: true,
 });

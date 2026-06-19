@@ -1,13 +1,37 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getSentryMetrics, SentryMetrics } from "@/lib/sentry";
-import { getGAMetrics, GAMetrics } from "@/lib/ga";
-import { getTimestreamData, getTimestreamDataByDate, UserActivityRow } from "@/lib/aws";
+import { apiFetch } from "@/lib/api";
+import { getSession, signOut } from "@/lib/auth";
 import { StatCard } from "@/components/stat-card";
 import { TransactionTable } from "@/components/transaction-table";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { ChevronLeft, SentryIcon } from "@/assets/icons/icons";
 import { UserSessionsBarChart, BarChartDataPoint } from "@/components/charts/BarChart";
 import { PageViewsTreemap, TreemapDataPoint } from "@/components/charts/TreemapChart";
+
+interface SentryMetrics {
+  totalErrors: number;
+  crashFreePercent: number;
+  transactions: Array<{ transaction: string; p50ms: number; count: number }>;
+}
+
+interface GAMetrics {
+  totalViews: number;
+  avgEngagementSeconds: number;
+  pageAvgTimes: Record<string, number>;
+  pageViews: Record<string, number>;
+  sessionsByDate: Record<string, number>;
+  bounceRate: number;
+  deviceBreakdown: { desktop: number; mobile: number; tablet: number };
+}
+
+interface TimestreamMetrics {
+  rows: Array<{ userId: string }>;
+  byDate: Record<string, number>;
+}
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -22,7 +46,6 @@ function lookupAvgTime(
 ): number | undefined {
   if (transaction in pageAvgTimes) return pageAvgTimes[transaction];
   if (!transaction.includes("[")) return undefined;
-  // Dynamic routes: aggregate all GA paths that match the template
   const re = new RegExp(
     "^" + transaction.replace(/\[[^\]]+\]/g, "[^/]+") + "$"
   );
@@ -44,56 +67,54 @@ function formatDisplayDate(isoDate: string): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-export default async function PortalPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}) {
-  const params = await searchParams;
+export default function PortalPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const today = new Date();
   const defaultTo = toISODate(today);
   const defaultFrom = toISODate(new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000));
 
-  const from = typeof params.from === "string" ? params.from : defaultFrom;
-  const to = typeof params.to === "string" ? params.to : defaultTo;
+  const from = searchParams.get("from") ?? defaultFrom;
+  const to = searchParams.get("to") ?? defaultTo;
 
-  let metrics: SentryMetrics | null = null;
-  let error: string | null = null;
-  let gaMetrics: GAMetrics | null = null;
-  let timestreamMetrics: UserActivityRow[] | null = null;
-  let uniqueUsersByDate: Record<string, number> = {};
+  const [sentry, setSentry] = useState<SentryMetrics | null>(null);
+  const [ga, setGa] = useState<GAMetrics | null>(null);
+  const [timestream, setTimestream] = useState<TimestreamMetrics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [sentryResult, gaResult, timestreamResult, timestreamByDateResult] = await Promise.allSettled([
-    getSentryMetrics(from, to),
-    getGAMetrics(from, to),
-    getTimestreamData(from, to),
-    getTimestreamDataByDate(from, to),
-  ]);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
-  if (timestreamResult.status === "fulfilled") {
-    timestreamMetrics = timestreamResult.value;
-  } else {
-    console.error("[Timestream error]", timestreamResult.reason);
-  }
+    const [sentryResult, gaResult, timestreamResult] = await Promise.allSettled([
+      apiFetch<SentryMetrics>("/sentry", { from, to }),
+      apiFetch<GAMetrics>("/ga", { from, to }),
+      apiFetch<TimestreamMetrics>("/timestream", { from, to }),
+    ]);
 
-  if (timestreamByDateResult.status === "fulfilled") {
-    uniqueUsersByDate = timestreamByDateResult.value;
-  } else {
-    console.error("[Timestream by-date error]", timestreamByDateResult.reason);
-  }
+    if (sentryResult.status === "fulfilled") setSentry(sentryResult.value);
+    else setError(sentryResult.reason instanceof Error ? sentryResult.reason.message : "Failed to load Sentry data");
 
-  if (sentryResult.status === "fulfilled") {
-    metrics = sentryResult.value;
-  } else {
-    error =
-      sentryResult.reason instanceof Error
-        ? sentryResult.reason.message
-        : "An unknown error occurred";
-  }
+    if (gaResult.status === "fulfilled") setGa(gaResult.value);
+    if (timestreamResult.status === "fulfilled") setTimestream(timestreamResult.value);
 
-  if (gaResult.status === "fulfilled") {
-    gaMetrics = gaResult.value;
+    setLoading(false);
+  }, [from, to]);
+
+  useEffect(() => {
+    getSession()
+      .then(() => fetchData())
+      .catch(() => router.push("/login"));
+  }, [fetchData, router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
+      </div>
+    );
   }
 
   if (error) {
@@ -101,7 +122,7 @@ export default async function PortalPage({
       <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
         <div className="max-w-lg w-full text-center p-8">
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 mb-3">
-            Failed to load Sentry data
+            Failed to load data
           </h1>
           <pre className="text-sm text-zinc-500 dark:text-zinc-400 font-mono bg-zinc-100 dark:bg-zinc-900 rounded-lg p-4 text-left whitespace-pre-wrap break-all">
             {error}
@@ -118,12 +139,13 @@ export default async function PortalPage({
     );
   }
 
-  const { totalErrors, crashFreePercent, transactions } = metrics!;
+  const { totalErrors = 0, crashFreePercent = 100, transactions = [] } = sentry ?? {};
 
   const sessionsByDateISO: Record<string, number> = {};
-  for (const [k, v] of Object.entries(gaMetrics?.sessionsByDate ?? {})) {
+  for (const [k, v] of Object.entries(ga?.sessionsByDate ?? {})) {
     sessionsByDateISO[gaDateToISO(k)] = v;
   }
+  const uniqueUsersByDate = timestream?.byDate ?? {};
   const allDates = Array.from(
     new Set([...Object.keys(sessionsByDateISO), ...Object.keys(uniqueUsersByDate)])
   ).sort();
@@ -134,12 +156,12 @@ export default async function PortalPage({
   }));
 
   const groupedPageViews: Record<string, number> = {};
-  for (const [path, views] of Object.entries(gaMetrics?.pageViews ?? {})) {
-    const key = /^\/locations\/[^/]+$/.test(path)
+  for (const [p, views] of Object.entries(ga?.pageViews ?? {})) {
+    const key = /^\/locations\/[^/]+$/.test(p)
       ? "/locations/[locationId]"
-      : /^\/on_boarding\/[^/]+$/.test(path)
+      : /^\/on_boarding\/[^/]+$/.test(p)
       ? "/on_boarding/[userId]"
-      : path;
+      : p;
     groupedPageViews[key] = (groupedPageViews[key] ?? 0) + views;
   }
   const treemapData: TreemapDataPoint[] = Object.entries(groupedPageViews)
@@ -150,13 +172,21 @@ export default async function PortalPage({
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-8">
       <div className="max-w-5xl mx-auto">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 mb-6 text-sm font-medium text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-50 transition-colors"
-        >
-          <ChevronLeft />
-          Home
-        </Link>
+        <div className="flex items-center justify-between mb-6">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-50 transition-colors"
+          >
+            <ChevronLeft />
+            Home
+          </Link>
+          <button
+            onClick={() => { signOut(); router.push("/login"); }}
+            className="text-sm text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-50 transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
 
         <header className="mb-8">
           <div className="flex items-start justify-between gap-4">
@@ -197,38 +227,34 @@ export default async function PortalPage({
           />
           <StatCard
             label="Total Views"
-            value={(gaMetrics?.totalViews ?? 0).toLocaleString()}
+            value={(ga?.totalViews ?? 0).toLocaleString()}
             description="Page views"
           />
           <StatCard
             label="Avg. Engagement Time"
-            value={formatDuration(gaMetrics?.avgEngagementSeconds ?? 0)}
+            value={formatDuration(ga?.avgEngagementSeconds ?? 0)}
             description="Per active user"
           />
           <StatCard
             label="Non PV users"
-            value={String(
-              timestreamResult.status === "fulfilled"
-                ? timestreamMetrics?.length
-                : 0,
-            )}
+            value={String(timestream?.rows.length ?? 0)}
             description="Unique non PV users that have logged in"
           />
           <StatCard
             label="Bounce Rate"
-            value={`${(gaMetrics?.bounceRate ?? 0).toFixed(1)}%`}
+            value={`${(ga?.bounceRate ?? 0).toFixed(1)}%`}
             description="Sessions with no engagement"
             valueColor={
-              (gaMetrics?.bounceRate ?? 0) <= 40
+              (ga?.bounceRate ?? 0) <= 40
                 ? "text-green-600 dark:text-green-400"
-                : (gaMetrics?.bounceRate ?? 0) <= 60
+                : (ga?.bounceRate ?? 0) <= 60
                   ? "text-yellow-600 dark:text-yellow-400"
                   : "text-red-600 dark:text-red-400"
             }
           />
           <StatCard
             label="Mobile vs Desktop"
-            value={`${(gaMetrics?.deviceBreakdown.mobile ?? 0).toFixed(0)}% / ${(gaMetrics?.deviceBreakdown.desktop ?? 0).toFixed(0)}%`}
+            value={`${(ga?.deviceBreakdown.mobile ?? 0).toFixed(0)}% / ${(ga?.deviceBreakdown.desktop ?? 0).toFixed(0)}%`}
             description="Mobile · Desktop share"
           />
         </div>
@@ -238,9 +264,7 @@ export default async function PortalPage({
           to={to}
           transactions={transactions.map((t) => ({
             ...t,
-            avgTimeSeconds: gaMetrics
-              ? lookupAvgTime(t.transaction, gaMetrics.pageAvgTimes)
-              : undefined,
+            avgTimeSeconds: ga ? lookupAvgTime(t.transaction, ga.pageAvgTimes) : undefined,
           }))}
         />
 

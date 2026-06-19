@@ -13,6 +13,7 @@ scripts/.oauth-token.json
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+api/node_modules
 
 # testing
 /coverage
@@ -49,3 +50,6 @@ next-env.d.ts
 
 # GA Auth
 oauth-client.json
+
+# Builds
+/api/dist

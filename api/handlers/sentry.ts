@@ -1,3 +1,5 @@
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
+
 function getSentryBase(): string {
   const token = process.env.SENTRY_AUTH_TOKEN ?? "";
   if (token.startsWith("sntrys_")) {
@@ -45,13 +47,31 @@ async function getProjectNumericId(org: string, slug: string): Promise<string> {
   return String(data.id);
 }
 
-export interface SentryMetrics {
+interface SentryMetrics {
   totalErrors: number;
   crashFreePercent: number;
   transactions: Array<{ transaction: string; p50ms: number; count: number }>;
 }
 
-export async function getSentryMetrics(
+interface StatsV2Response {
+  groups?: Array<{
+    series: { "sum(quantity)": number[] };
+    totals: { "sum(quantity)": number };
+  }>;
+}
+
+interface SessionsResponse {
+  groups?: Array<{
+    by?: { "session.status"?: string };
+    totals?: { "sum(session)"?: number };
+  }>;
+}
+
+interface EventsResponse {
+  data?: Array<Record<string, unknown>>;
+}
+
+async function getSentryMetrics(
   startDate: string,
   endDate: string,
 ): Promise<SentryMetrics> {
@@ -64,7 +84,6 @@ export async function getSentryMetrics(
 
   const projectId = await getProjectNumericId(org, projectSlug);
 
-  // Sentry expects ISO 8601 datetimes for start/end
   const start = `${startDate}T00:00:00`;
   const end = `${endDate}T23:59:59`;
 
@@ -129,20 +148,32 @@ export async function getSentryMetrics(
   return { totalErrors, crashFreePercent, transactions };
 }
 
-interface StatsV2Response {
-  groups?: Array<{
-    series: { "sum(quantity)": number[] };
-    totals: { "sum(quantity)": number };
-  }>;
-}
+export const handler = async (
+  event: APIGatewayProxyEventV2
+): Promise<APIGatewayProxyResultV2> => {
+  const { from, to } = event.queryStringParameters ?? {};
 
-interface SessionsResponse {
-  groups?: Array<{
-    by?: { "session.status"?: string };
-    totals?: { "sum(session)"?: number };
-  }>;
-}
+  if (!from || !to) {
+    return {
+      statusCode: 400,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "from and to query params are required" }),
+    };
+  }
 
-interface EventsResponse {
-  data?: Array<Record<string, unknown>>;
-}
+  try {
+    const data = await getSentryMetrics(from, to);
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    };
+  } catch (err) {
+    console.error("[sentry handler error]", err);
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
+    };
+  }
+};

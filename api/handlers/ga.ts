@@ -1,3 +1,4 @@
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
 import { createSign } from "crypto";
 
 async function getAccessToken(): Promise<string> {
@@ -49,24 +50,30 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-export interface GAMetrics {
+interface GAMetrics {
   totalViews: number;
   avgEngagementSeconds: number;
-  pageAvgTimes: Record<string, number>; // pagePath → avg engagement seconds per view
-  pageViews: Record<string, number>; // pagePath → view count
-  sessionsByDate: Record<string, number>; // "YYYYMMDD" → session count
-  bounceRate: number; // 0–100
-  deviceBreakdown: { desktop: number; mobile: number; tablet: number }; // percentages
+  pageAvgTimes: Record<string, number>;
+  pageViews: Record<string, number>;
+  sessionsByDate: Record<string, number>;
+  bounceRate: number;
+  deviceBreakdown: { desktop: number; mobile: number; tablet: number };
 }
 
-export async function getGAMetrics(
-  startDate: string,
-  endDate: string,
-): Promise<GAMetrics> {
+interface GASummaryResponse {
+  rows?: Array<{ metricValues: Array<{ value: string }> }>;
+}
+
+interface GARowsResponse {
+  rows?: Array<{
+    dimensionValues: Array<{ value: string }>;
+    metricValues: Array<{ value: string }>;
+  }>;
+}
+
+async function getGAMetrics(startDate: string, endDate: string): Promise<GAMetrics> {
   const propertyId = process.env.GA_PROPERTY_ID;
-  if (!propertyId) {
-    throw new Error("GA_PROPERTY_ID env var must be set");
-  }
+  if (!propertyId) throw new Error("GA_PROPERTY_ID env var must be set");
 
   const accessToken = await getAccessToken();
 
@@ -98,10 +105,7 @@ export async function getGAMetrics(
     runReport({
       dateRanges,
       dimensions: [{ name: "pagePath" }],
-      metrics: [
-        { name: "userEngagementDuration" },
-        { name: "screenPageViews" },
-      ],
+      metrics: [{ name: "userEngagementDuration" }, { name: "screenPageViews" }],
     }),
     runReport({
       dateRanges,
@@ -115,35 +119,29 @@ export async function getGAMetrics(
     }),
   ]);
 
-  if (!summaryRes.ok) {
-    const body = await summaryRes.text().catch(() => "");
-    throw new Error(`GA Data API ${summaryRes.status}: ${body.slice(0, 300)}`);
-  }
-  if (!pageRes.ok) {
-    const body = await pageRes.text().catch(() => "");
-    throw new Error(`GA Data API (pages) ${pageRes.status}: ${body.slice(0, 300)}`);
-  }
-  if (!deviceRes.ok) {
-    const body = await deviceRes.text().catch(() => "");
-    throw new Error(`GA Data API (devices) ${deviceRes.status}: ${body.slice(0, 300)}`);
-  }
-  if (!dateRes.ok) {
-    const body = await dateRes.text().catch(() => "");
-    throw new Error(`GA Data API (dates) ${dateRes.status}: ${body.slice(0, 300)}`);
+  for (const [label, res] of [
+    ["summary", summaryRes],
+    ["pages", pageRes],
+    ["devices", deviceRes],
+    ["dates", dateRes],
+  ] as const) {
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`GA Data API (${label}) ${res.status}: ${body.slice(0, 300)}`);
+    }
   }
 
   const summaryData = (await summaryRes.json()) as GASummaryResponse;
-  const pageData = (await pageRes.json()) as GAPageResponse;
-  const deviceData = (await deviceRes.json()) as GADeviceResponse;
-  const dateData = (await dateRes.json()) as GADateResponse;
+  const pageData = (await pageRes.json()) as GARowsResponse;
+  const deviceData = (await deviceRes.json()) as GARowsResponse;
+  const dateData = (await dateRes.json()) as GARowsResponse;
 
   const values = summaryData.rows?.[0]?.metricValues;
   const totalViews = Number(values?.[0]?.value ?? "0");
   const userEngagementDuration = Number(values?.[1]?.value ?? "0");
   const activeUsers = Number(values?.[2]?.value ?? "0");
   const bounceRate = Number(values?.[3]?.value ?? "0") * 100;
-  const avgEngagementSeconds =
-    activeUsers > 0 ? userEngagementDuration / activeUsers : 0;
+  const avgEngagementSeconds = activeUsers > 0 ? userEngagementDuration / activeUsers : 0;
 
   const pageAvgTimes: Record<string, number> = {};
   const pageViews: Record<string, number> = {};
@@ -157,8 +155,7 @@ export async function getGAMetrics(
 
   const sessionsByDate: Record<string, number> = {};
   for (const row of dateData.rows ?? []) {
-    const date = row.dimensionValues[0].value;
-    sessionsByDate[date] = Number(row.metricValues[0].value);
+    sessionsByDate[row.dimensionValues[0].value] = Number(row.metricValues[0].value);
   }
 
   const deviceSessions: Record<string, number> = {};
@@ -167,37 +164,49 @@ export async function getGAMetrics(
   }
   const totalSessions = Object.values(deviceSessions).reduce((a, b) => a + b, 0);
   const pct = (key: string) =>
-    totalSessions > 0 ? (deviceSessions[key] ?? 0) / totalSessions * 100 : 0;
-  const deviceBreakdown = {
-    desktop: pct("desktop"),
-    mobile: pct("mobile"),
-    tablet: pct("tablet"),
+    totalSessions > 0 ? ((deviceSessions[key] ?? 0) / totalSessions) * 100 : 0;
+
+  return {
+    totalViews,
+    avgEngagementSeconds,
+    pageAvgTimes,
+    pageViews,
+    sessionsByDate,
+    bounceRate,
+    deviceBreakdown: {
+      desktop: pct("desktop"),
+      mobile: pct("mobile"),
+      tablet: pct("tablet"),
+    },
   };
-
-  return { totalViews, avgEngagementSeconds, pageAvgTimes, pageViews, sessionsByDate, bounceRate, deviceBreakdown };
 }
 
-interface GASummaryResponse {
-  rows?: Array<{ metricValues: Array<{ value: string }> }>;
-}
+export const handler = async (
+  event: APIGatewayProxyEventV2,
+): Promise<APIGatewayProxyResultV2> => {
+  const { from, to } = event.queryStringParameters ?? {};
 
-interface GAPageResponse {
-  rows?: Array<{
-    dimensionValues: Array<{ value: string }>;
-    metricValues: Array<{ value: string }>;
-  }>;
-}
+  if (!from || !to) {
+    return {
+      statusCode: 400,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "from and to query params are required" }),
+    };
+  }
 
-interface GADeviceResponse {
-  rows?: Array<{
-    dimensionValues: Array<{ value: string }>;
-    metricValues: Array<{ value: string }>;
-  }>;
-}
-
-interface GADateResponse {
-  rows?: Array<{
-    dimensionValues: Array<{ value: string }>;
-    metricValues: Array<{ value: string }>;
-  }>;
-}
+  try {
+    const data = await getGAMetrics(from, to);
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    };
+  } catch (err) {
+    console.error("[ga handler error]", err);
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
+    };
+  }
+};

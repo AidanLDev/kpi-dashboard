@@ -1,0 +1,17 @@
+{
+  "name": "kpi-api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@aws-sdk/client-timestream-query": "^3",
+    "google-auth-library": "^10"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8",
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}
