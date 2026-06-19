@@ -82,6 +82,7 @@ export async function getSentryMetrics(
       ["project", projectId],
       ["field", "sum(session)"],
       ["groupBy", "session.status"],
+      ["interval", "1d"],
       ["start", start],
       ["end", end],
     ]),
@@ -106,10 +107,14 @@ export async function getSentryMetrics(
   let crashFreePercent = 100;
   if (sessionsResult.status === "fulfilled") {
     const groups = sessionsResult.value.groups ?? [];
-    const total = groups.reduce((sum, g) => sum + (g.totals["sum(session)"] ?? 0), 0);
+    const total = groups.reduce((sum, g) => sum + (g.totals?.["sum(session)"] ?? 0), 0);
     const crashed =
-      groups.find((g) => g.by["session.status"] === "crashed")?.totals["sum(session)"] ?? 0;
-    crashFreePercent = total === 0 ? 100 : ((total - crashed) / total) * 100;
+      groups.find((g) => g.by?.["session.status"] === "crashed")?.totals?.["sum(session)"] ?? 0;
+    if (total > 0) {
+      crashFreePercent = ((total - crashed) / total) * 100;
+    }
+  } else {
+    console.error("[Sentry sessions error]", sessionsResult.reason);
   }
 
   let transactions: SentryMetrics["transactions"] = [];
@@ -133,8 +138,8 @@ interface StatsV2Response {
 
 interface SessionsResponse {
   groups?: Array<{
-    by: { "session.status": string };
-    totals: { "sum(session)": number };
+    by?: { "session.status"?: string };
+    totals?: { "sum(session)"?: number };
   }>;
 }
 
