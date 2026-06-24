@@ -48,66 +48,6 @@ export class InfrastructureStack extends cdk.Stack {
     timestreamTable.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
     timestreamTable.node.addDependency(timestreamDb);
 
-    // ── IAM groups ──────────────────────────────────────────────────────────
-
-    const timestreamGroup = new iam.CfnGroup(this, "TimestreamAccessGroup", {
-      groupName: "TimestreamAccessGroup",
-      policies: [
-        {
-          policyName: "TimestreamAccess",
-          policyDocument: {
-            Version: "2012-10-17",
-            Statement: [
-              {
-                Effect: "Allow",
-                Action: [
-                  "timestream:UpdateTable",
-                  "timestream:WriteRecords",
-                  "timestream:DescribeEndpoints",
-                ],
-                Resource: timestreamTable.attrArn,
-              },
-            ],
-          },
-        },
-      ],
-    });
-
-    new iam.CfnUserToGroupAddition(this, "AidanTimestreamGroupMembership", {
-      groupName: timestreamGroup.ref,
-      users: ["aidan.lowson"],
-    });
-
-    const route53ReadGroup = new iam.CfnGroup(this, "Route53ReadGroup", {
-      groupName: "Route53ReadGroup",
-      policies: [
-        {
-          policyName: "Route53ReadOnly",
-          policyDocument: {
-            Version: "2012-10-17",
-            Statement: [
-              {
-                Effect: "Allow",
-                Action: [
-                  "route53:GetHostedZone",
-                  "route53:GetHostedZoneCount",
-                  "route53:ListHostedZones",
-                  "route53:ListHostedZonesByName",
-                  "route53:ListResourceRecordSets",
-                ],
-                Resource: "*",
-              },
-            ],
-          },
-        },
-      ],
-    });
-
-    new iam.CfnUserToGroupAddition(this, "AidanRoute53GroupMembership", {
-      groupName: route53ReadGroup.ref,
-      users: ["aidan.lowson"],
-    });
-
     // ── Ingest Lambda (existing) ─────────────────────────────────────────────
 
     const ingestFn = new lambda.Function(this, "IngestDailyMetrics", {

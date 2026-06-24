@@ -56,3 +56,5 @@ oauth-client.json
 
 # CI/CD local state
 .last-infra-deploy
+
+.vscode
