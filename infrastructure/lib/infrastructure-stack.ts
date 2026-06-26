@@ -89,11 +89,14 @@ export class InfrastructureStack extends cdk.Stack {
 
     // ── API Lambda functions ─────────────────────────────────────────────────
 
+    const apiLockFile = path.join(__dirname, "../../api/pnpm-lock.yaml");
+
     const sentryFn = new lambdaNode.NodejsFunction(this, "SentryApiHandler", {
       entry: path.join(__dirname, "../../api/handlers/sentry.ts"),
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
-      bundling: { forceDockerBundling: false, esbuildArgs: { "--packages": "bundle" } },
+      depsLockFilePath: apiLockFile,
+      bundling: { forceDockerBundling: false },
       environment: {
         SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN ?? "",
         SENTRY_ORG: process.env.SENTRY_ORG ?? "process-vision",
@@ -105,7 +108,8 @@ export class InfrastructureStack extends cdk.Stack {
       entry: path.join(__dirname, "../../api/handlers/timestream.ts"),
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
-      bundling: { forceDockerBundling: false, esbuildArgs: { "--packages": "bundle" } },
+      depsLockFilePath: apiLockFile,
+      bundling: { forceDockerBundling: false },
     });
 
     timestreamApiFn.addToRolePolicy(
@@ -119,7 +123,8 @@ export class InfrastructureStack extends cdk.Stack {
       entry: path.join(__dirname, "../../api/handlers/ga.ts"),
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
-      bundling: { forceDockerBundling: false, esbuildArgs: { "--packages": "bundle" } },
+      depsLockFilePath: apiLockFile,
+      bundling: { forceDockerBundling: false },
       environment: {
         GA_PROPERTY_ID: process.env.GA_PROPERTY_ID ?? "",
         GA_CLIENT_EMAIL: process.env.GA_CLIENT_EMAIL ?? "",

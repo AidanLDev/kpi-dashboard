@@ -30,10 +30,24 @@ fi
 echo "=== Infrastructure changes detected ==="
 echo "$CHANGED"
 echo ""
-echo "=== Running CDK deploy ==="
 
-cd "$REPO_ROOT/infrastructure"
+# pnpm on /mnt/c/ (NTFS) installs Windows binaries even from WSL, which breaks
+# esbuild bundling. Copy source to a WSL-native temp dir and build there.
+BUILD_DIR="$(mktemp -d)"
+trap 'rm -rf "$BUILD_DIR"' EXIT
+
+echo "=== Copying source to WSL build dir ==="
+rsync -a --exclude=node_modules --exclude=cdk.out "$REPO_ROOT/api/" "$BUILD_DIR/api/"
+rsync -a --exclude=node_modules --exclude=cdk.out "$REPO_ROOT/infrastructure/" "$BUILD_DIR/infrastructure/"
+
+echo "=== Installing dependencies ==="
+cd "$BUILD_DIR/api"
 pnpm install --frozen-lockfile
+
+cd "$BUILD_DIR/infrastructure"
+pnpm install --frozen-lockfile
+
+echo "=== Running CDK deploy ==="
 npx cdk deploy --require-approval never
 
 git -C "$REPO_ROOT" rev-parse HEAD > "$LAST_DEPLOYED_COMMIT_FILE"
